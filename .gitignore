@@ -33,3 +33,4 @@ Thumbs.db
 installer/staging/
 installer/Payload.zip
 installer/GenIcon.exe
+installer/Uninstall.exe
