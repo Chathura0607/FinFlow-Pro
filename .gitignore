@@ -28,3 +28,8 @@ target/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Installer temporary artifacts
+installer/staging/
+installer/Payload.zip
+installer/GenIcon.exe
