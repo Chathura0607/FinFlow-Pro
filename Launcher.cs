@@ -23,21 +23,29 @@ namespace MicroFinanceApp
             Application.SetCompatibleTextRenderingDefault(false);
 
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            webRoot = Path.Combine(baseDir, "micro-finance-web", "dist");
-
-            if (!Directory.Exists(webRoot))
+            
+            // Check possible locations for built dist assets
+            if (Directory.Exists(Path.Combine(baseDir, "dist")))
             {
                 webRoot = Path.Combine(baseDir, "dist");
             }
-
-            if (!Directory.Exists(webRoot))
+            else if (Directory.Exists(Path.Combine(baseDir, "micro-finance-web", "dist")))
             {
-                MessageBox.Show("Could not locate the web application build directory:\n" + webRoot + "\n\nPlease ensure 'micro-finance-web/dist' exists.", "FinFlow Pro - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                webRoot = Path.Combine(baseDir, "micro-finance-web", "dist");
+            }
+            else
+            {
+                MessageBox.Show(
+                    "Could not locate the web application build directory.\n\nSearched:\n- " + 
+                    Path.Combine(baseDir, "dist") + "\n- " + 
+                    Path.Combine(baseDir, "micro-finance-web", "dist") + 
+                    "\n\nPlease ensure the application files are intact or run npm run build.",
+                    "FinFlow Pro - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             // Find open port
-            for (int p = 5173; p < 5200; p++)
+            for (int p = 5173; p < 5250; p++)
             {
                 try
                 {
@@ -50,13 +58,16 @@ namespace MicroFinanceApp
                 }
                 catch
                 {
-                    if (listener != null) listener.Close();
+                    if (listener != null)
+                    {
+                        try { listener.Close(); } catch { }
+                    }
                 }
             }
 
             if (listener == null || !listener.IsListening)
             {
-                MessageBox.Show("Failed to bind local server port. Please check permissions.", "FinFlow Pro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Failed to bind local server port. Please check system permissions.", "FinFlow Pro", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
@@ -67,7 +78,7 @@ namespace MicroFinanceApp
 
             string url = "http://localhost:" + port + "/";
 
-            // Launch browser in app mode if Chrome or Edge exists
+            // Launch browser in app mode (Chrome or Edge)
             LaunchAppWindow(url);
 
             // Tray App Form
@@ -123,8 +134,10 @@ namespace MicroFinanceApp
                         case ".jpeg": mime = "image/jpeg"; break;
                         case ".svg": mime = "image/svg+xml"; break;
                         case ".ico": mime = "image/x-icon"; break;
-                        case ".woff":
+                        case ".webp": mime = "image/webp"; break;
+                        case ".woff": mime = "font/woff"; break;
                         case ".woff2": mime = "font/woff2"; break;
+                        case ".wasm": mime = "application/wasm"; break;
                     }
 
                     context.Response.ContentType = mime;
@@ -165,7 +178,7 @@ namespace MicroFinanceApp
                     Process.Start(new ProcessStartInfo
                     {
                         FileName = edgePath,
-                        Arguments = "--app=" + url + " --window-size=1400,900 --user-data-dir=\"" + Path.Combine(Path.GetTempPath(), "FinFlowPro_Profile") + "\"",
+                        Arguments = "--app=" + url + " --window-size=1440,920 --user-data-dir=\"" + Path.Combine(Path.GetTempPath(), "FinFlowPro_Profile") + "\"",
                         UseShellExecute = true
                     });
                     return;
@@ -175,7 +188,7 @@ namespace MicroFinanceApp
                     Process.Start(new ProcessStartInfo
                     {
                         FileName = chromePath,
-                        Arguments = "--app=" + url + " --window-size=1400,900",
+                        Arguments = "--app=" + url + " --window-size=1440,920",
                         UseShellExecute = true
                     });
                     return;
@@ -209,7 +222,7 @@ namespace MicroFinanceApp
             appUrl = url;
 
             ContextMenu menu = new ContextMenu();
-            menu.MenuItems.Add("Open FinFlow Pro App", (s, e) => Process.Start(new ProcessStartInfo(appUrl) { UseShellExecute = true }));
+            menu.MenuItems.Add("Open FinFlow Pro", (s, e) => Process.Start(new ProcessStartInfo(appUrl) { UseShellExecute = true }));
             menu.MenuItems.Add("-");
             menu.MenuItems.Add("Exit Application", (s, e) => {
                 trayIcon.Visible = false;
@@ -217,9 +230,19 @@ namespace MicroFinanceApp
             });
 
             trayIcon = new NotifyIcon();
-            trayIcon.Icon = SystemIcons.Application;
+
+            string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                try { trayIcon.Icon = new Icon(iconPath); } catch { trayIcon.Icon = SystemIcons.Application; }
+            }
+            else
+            {
+                trayIcon.Icon = SystemIcons.Application;
+            }
+
             trayIcon.ContextMenu = menu;
-            trayIcon.Text = "FinFlow Pro - Micro Finance OS (Running on " + url + ")";
+            trayIcon.Text = "FinFlow Pro - Micro Finance OS";
             trayIcon.Visible = true;
 
             trayIcon.DoubleClick += (s, e) => Process.Start(new ProcessStartInfo(appUrl) { UseShellExecute = true });
