@@ -205,7 +205,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return;
     }
 
-    if (window.confirm('⚠️ Reset all tables to factory default demo dataset? Current data will be replaced.')) {
+    if (window.confirm('⚠️ Restore factory default master dataset? Current database records will be refreshed.')) {
       await seedInitialData(true);
       await SecurityService.logSecurityEvent(
         'Database Factory Reset',
@@ -213,7 +213,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         currentUser?.username || 'Admin',
         'System'
       );
-      showToast('info', 'Database Reset', 'Sample dataset loaded. Reloading application...');
+      showToast('info', 'Database Reset', 'Default dataset loaded. Reloading application...');
       setTimeout(() => window.location.reload(), 1000);
     }
   };
@@ -431,12 +431,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <RefreshCw className="w-5 h-5 text-rose-600 group-hover:scale-110 transition-transform" />
             <div className="flex items-center justify-between">
-              <h5 className="font-bold text-xs text-slate-900 dark:text-white">Reset Sample Data</h5>
+              <h5 className="font-bold text-xs text-slate-900 dark:text-white">Restore Master Data</h5>
               {currentUser?.role !== 'Admin' && (
                 <span className="text-[9px] bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded font-bold">Admin Only</span>
               )}
             </div>
-            <p className="text-[11px] text-slate-500">Re-seed clean demo microfinance dataset.</p>
+            <p className="text-[11px] text-slate-500">Restore factory baseline financial dataset.</p>
           </button>
         </div>
       </div>
