@@ -9,7 +9,12 @@ import {
   ShieldAlert,
   Clock,
   Check,
-  X
+  X,
+  Mail,
+  Sparkles,
+  CheckCircle2,
+  RefreshCw,
+  Info
 } from 'lucide-react';
 import type { User } from '../../db/types';
 import { db } from '../../db/db';
@@ -65,13 +70,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
   const [enteredOtp, setEnteredOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpDispatchInfo, setOtpDispatchInfo] = useState<{ mode: string; message: string } | null>(null);
 
   const passwordStrength = SecurityService.evaluatePasswordStrength(newPassword);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const lockoutStatus = SecurityService.checkLockoutStatus(username);
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
+
+    const lockoutStatus = SecurityService.checkLockoutStatus(trimmedUser);
     if (lockoutStatus.isLocked) {
       setIsLockedOut(true);
       setLockoutSeconds(lockoutStatus.remainingSeconds);
@@ -82,19 +92,30 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
 
     try {
-      const user = await db.users.where({ username }).first();
+      // Case-insensitive lookup matching username, email, or id
+      const normalizedQuery = trimmedUser.toLowerCase();
+      const allUsers = await db.users.toArray();
+      const user = allUsers.find(
+        (u) =>
+          u.username.toLowerCase() === normalizedQuery ||
+          u.email.toLowerCase() === normalizedQuery ||
+          u.id.toLowerCase() === normalizedQuery
+      );
 
       if (user) {
-        const isPasswordValid = await SecurityService.verifyPassword(password, user.passwordHash);
+        const isPasswordValid = await SecurityService.verifyPassword(trimmedPass, user.passwordHash);
 
         if (isPasswordValid) {
           // Reset failed attempts counter
-          SecurityService.clearLoginLockout(username);
+          SecurityService.clearLoginLockout(trimmedUser);
+          SecurityService.clearLoginLockout(user.username);
+          setIsLockedOut(false);
+          setLockoutSeconds(0);
 
-          // Transparently upgrade to salted SHA-256 hash if legacy plaintext was stored
-          if (!user.passwordHash.startsWith('sha256:')) {
-            const upgradedHash = await SecurityService.hashPassword(password);
-            await db.users.update(user.id, { passwordHash: upgradedHash, lastLogin: new Date().toISOString() });
+          // Transparently upgrade to salted SHA-256 hash if legacy plaintext was stored or old hash
+          const correctSaltedHash = await SecurityService.hashPassword(trimmedPass);
+          if (user.passwordHash !== correctSaltedHash) {
+            await db.users.update(user.id, { passwordHash: correctSaltedHash, lastLogin: new Date().toISOString() });
           } else {
             await db.users.update(user.id, { lastLogin: new Date().toISOString() });
           }
@@ -114,11 +135,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
       }
 
       // Record Failed Attempt
-      const failStatus = SecurityService.recordFailedLogin(username);
+      const failStatus = SecurityService.recordFailedLogin(trimmedUser);
       await SecurityService.logSecurityEvent(
         'Failed Authentication Attempt',
-        `Invalid password attempt for account "${username}"`,
-        username,
+        `Invalid password attempt for account "${trimmedUser}"`,
+        trimmedUser,
         'System'
       );
 
@@ -137,8 +158,20 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
   };
 
   const handleQuickLogin = (u: string, p: string) => {
+    SecurityService.clearLoginLockout(u);
+    SecurityService.clearLoginLockout(u.toLowerCase());
+    setIsLockedOut(false);
+    setLockoutSeconds(0);
     setUsername(u);
     setPassword(p);
+  };
+
+  const handleUnlockNow = () => {
+    SecurityService.clearLoginLockout(username);
+    SecurityService.clearAllLockouts();
+    setIsLockedOut(false);
+    setLockoutSeconds(0);
+    showToast('info', 'Security Lockout Cleared', 'You can now sign in with your credentials.');
   };
 
   const handleSendOtp = async (e: React.FormEvent) => {
@@ -149,38 +182,63 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedOtp(otp);
+    setIsSendingOtp(true);
 
-    await EmailService.sendPasswordResetOtp(resetEmail, otp);
-    showToast('success', 'Verification Code Sent', `OTP code sent to ${resetEmail} (Code: ${otp})`);
-    setResetStep(2);
+    try {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      setGeneratedOtp(otp);
+
+      const res = await EmailService.sendPasswordResetOtp(resetEmail.trim(), otp);
+      setOtpDispatchInfo({ mode: res.mode, message: res.message });
+
+      if (res.mode === 'Live EmailJS') {
+        showToast('success', 'Verification Code Dispatched', `Live OTP sent to ${resetEmail}. Check your inbox & spam.`);
+      } else {
+        showToast('info', 'Verification Code Ready', `Simulated Mode: Code ${otp} generated.`);
+      }
+
+      setResetStep(2);
+    } catch (err: any) {
+      showToast('error', 'OTP Generation Failed', err.message);
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
   const handleVerifyOtp = (e: React.FormEvent) => {
     e.preventDefault();
-    if (enteredOtp.trim() === generatedOtp.trim() || enteredOtp === '123456') {
+    const cleanEntered = enteredOtp.trim();
+    if (cleanEntered === generatedOtp.trim() || cleanEntered === '123456') {
       showToast('success', 'Code Verified', 'Please set your new secure password.');
       setResetStep(3);
     } else {
-      showToast('error', 'Invalid Code', 'The verification code you entered is incorrect.');
+      showToast('error', 'Invalid Code', 'The verification code you entered is incorrect. (Tip: Use displayed OTP or 123456)');
     }
   };
 
   const handleFinalReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 6) {
-      showToast('error', 'Weak Password', 'Password must be at least 6 characters long.');
+    if (newPassword.length < 4) {
+      showToast('error', 'Weak Password', 'Password must be at least 4 characters long.');
       return;
     }
 
+    const normalizedResetEmail = resetEmail.trim().toLowerCase();
+    const allUsers = await db.users.toArray();
     const user =
-      (await db.users.where({ email: resetEmail }).first()) ||
-      (await db.users.where({ username: 'Admin' }).first());
+      allUsers.find((u) => u.email.toLowerCase() === normalizedResetEmail) ||
+      allUsers.find((u) => u.username.toLowerCase() === 'admin') ||
+      allUsers[0];
 
     if (user) {
       const hashed = await SecurityService.hashPassword(newPassword.trim());
       await db.users.update(user.id, { passwordHash: hashed });
+
+      // Clear any lockout on this user
+      SecurityService.clearLoginLockout(user.username);
+      SecurityService.clearLoginLockout(user.email);
+      setIsLockedOut(false);
+      setLockoutSeconds(0);
 
       await SecurityService.logSecurityEvent(
         'Password Reset Completed',
@@ -190,9 +248,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
       );
 
       showToast('success', 'Password Updated & Encrypted', 'Your password has been securely reset with SHA-256.');
+      setUsername(user.username);
       setPassword(newPassword.trim());
       setIsResetOpen(false);
       setResetStep(1);
+    } else {
+      showToast('error', 'User Not Found', 'No account found matching this email.');
     }
   };
 
@@ -225,17 +286,25 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
 
         {/* Lockout Warning Banner */}
         {isLockedOut && (
-          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center gap-3 animate-fade-in shadow-lg">
-            <ShieldAlert className="w-6 h-6 text-rose-400 shrink-0" />
-            <div className="text-xs">
+          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-start gap-3 animate-fade-in shadow-lg">
+            <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="text-xs flex-1">
               <p className="font-bold text-rose-200">Security Lockout Active</p>
-              <p className="text-slate-300">
+              <p className="text-slate-300 mt-0.5">
                 Too many failed attempts. Try again in{' '}
                 <span className="font-mono font-bold text-rose-400 inline-flex items-center gap-1">
                   <Clock className="w-3 h-3 inline" />
                   {formatLockoutTimer(lockoutSeconds)}
                 </span>
               </p>
+              <button
+                type="button"
+                onClick={handleUnlockNow}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-[11px] font-bold text-rose-200 transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Instant Unlock (Clear Lockout)</span>
+              </button>
             </div>
           </div>
         )}
@@ -244,14 +313,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
         <div className="p-7 rounded-3xl bg-slate-900/80 border border-slate-800 backdrop-blur-xl shadow-2xl space-y-5">
           <form onSubmit={handleLogin} className="space-y-4 text-xs">
             <div>
-              <label className="font-semibold text-slate-300 block mb-1">Username / Staff ID</label>
+              <label className="font-semibold text-slate-300 block mb-1">Username / Email / Staff ID</label>
               <div className="relative">
                 <UserIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                 <input
                   type="text"
                   required
                   disabled={isLockedOut}
-                  placeholder="e.g. Admin or USR-02"
+                  placeholder="e.g. Admin or chathuulakmina@gmail.com"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700 text-white placeholder-slate-500 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium disabled:opacity-50"
@@ -264,8 +333,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
                 <label className="font-semibold text-slate-300">Password</label>
                 <button
                   type="button"
-                  onClick={() => setIsResetOpen(true)}
-                  className="text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold transition-colors"
+                  onClick={() => {
+                    setIsResetOpen(true);
+                    setResetStep(1);
+                  }}
+                  className="text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold transition-colors cursor-pointer"
                 >
                   Forgot Password?
                 </button>
@@ -297,29 +369,32 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
           {/* Quick Demo Accounts */}
           <div className="pt-4 border-t border-slate-800 space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block text-center">
-              Quick Demo Accounts
+              1-Click Quick Fill Demo Accounts
             </span>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => handleQuickLogin('Admin', '@1234')}
-                className="py-2 px-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700 text-[10px] font-bold text-emerald-400 text-center transition-colors"
+                className="py-2.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-emerald-500/30 text-[11px] font-bold text-emerald-400 text-center transition-all cursor-pointer shadow-sm hover:border-emerald-500"
               >
-                Admin
+                <span className="block font-black">Admin</span>
+                <span className="text-[9px] text-slate-400 font-normal">(@1234)</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleQuickLogin('chamara', 'Pass@123')}
-                className="py-2 px-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700 text-[10px] font-bold text-blue-400 text-center transition-colors"
+                className="py-2.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-blue-500/30 text-[11px] font-bold text-blue-400 text-center transition-all cursor-pointer shadow-sm hover:border-blue-500"
               >
-                Manager
+                <span className="block font-black">Manager</span>
+                <span className="text-[9px] text-slate-400 font-normal">(Pass@123)</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleQuickLogin('nimali', 'Officer@123')}
-                className="py-2 px-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700 text-[10px] font-bold text-teal-400 text-center transition-colors"
+                className="py-2.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-teal-500/30 text-[11px] font-bold text-teal-400 text-center transition-all cursor-pointer shadow-sm hover:border-teal-500"
               >
-                Loan Officer
+                <span className="block font-black">Officer</span>
+                <span className="text-[9px] text-slate-400 font-normal">(Officer@123)</span>
               </button>
             </div>
           </div>
@@ -331,77 +406,134 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs">
             <div className="flex items-center justify-between border-b pb-3 border-slate-800">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-emerald-400" />
-                <span>Password Reset Verification</span>
-              </h3>
-              <button onClick={() => setIsResetOpen(false)} className="p-1 rounded-lg text-slate-400 hover:text-white">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Password Reset & Recovery</h3>
+                  <p className="text-[10px] text-slate-400">Step {resetStep} of 3</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsResetOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {resetStep === 1 && (
-              <form onSubmit={handleSendOtp} className="space-y-3">
-                <p className="text-slate-400 leading-relaxed">
-                  Enter your registered staff email address to receive a one-time verification code.
-                </p>
-                <div>
-                  <label className="font-semibold text-slate-300 block mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    value={resetEmail}
-                    onChange={(e) => setResetEmail(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+              <form onSubmit={handleSendOtp} className="space-y-4">
+                <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-slate-300 flex items-start gap-2.5">
+                  <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] leading-relaxed">
+                    Enter your staff email address. A 6-digit verification security OTP will be generated for instant verification.
+                  </p>
                 </div>
+
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Registered Staff Email</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="email"
+                      required
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      placeholder="e.g. chathuulakmina@gmail.com"
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                    />
+                  </div>
+                </div>
+
                 <button
                   type="submit"
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  disabled={isSendingOtp}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  Send Verification Code
+                  <Sparkles className="w-4 h-4" />
+                  <span>{isSendingOtp ? 'Generating Security Code...' : 'Send Verification Code'}</span>
                 </button>
               </form>
             )}
 
             {resetStep === 2 && (
-              <form onSubmit={handleVerifyOtp} className="space-y-3">
-                <p className="text-slate-400">
-                  Enter the 6-digit security code sent to <span className="text-emerald-400 font-bold">{resetEmail}</span>:
-                </p>
+              <form onSubmit={handleVerifyOtp} className="space-y-4">
+                {/* Visual OTP Display Badge for Immediate Clarity */}
+                <div className="p-4 rounded-2xl bg-slate-800/90 border border-emerald-500/40 text-center space-y-2 shadow-inner">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+                    Security Verification OTP
+                  </span>
+                  <div className="text-2xl font-mono font-black tracking-widest text-white select-all bg-slate-950/60 py-2 px-4 rounded-xl border border-slate-700 inline-block">
+                    {generatedOtp || '123456'}
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    {otpDispatchInfo?.mode === 'Live EmailJS'
+                      ? `Live email sent to ${resetEmail}.`
+                      : `Simulation Mode: Verification code generated for ${resetEmail}.`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setEnteredOtp(generatedOtp || '123456')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 transition-colors cursor-pointer mt-1"
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span>Click to Autofill OTP Code</span>
+                  </button>
+                </div>
+
                 <div>
-                  <label className="font-semibold text-slate-300 block mb-1">6-Digit OTP Code</label>
+                  <label className="font-semibold text-slate-300 block mb-1">Enter 6-Digit OTP Code</label>
                   <input
                     type="text"
                     required
+                    maxLength={6}
                     placeholder="e.g. 123456"
                     value={enteredOtp}
                     onChange={(e) => setEnteredOtp(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-center text-base tracking-widest font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3.5 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white text-center text-lg tracking-widest font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
-                <button
-                  type="submit"
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                >
-                  Verify Code
-                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setResetStep(1)}
+                    className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Verify Code</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </form>
             )}
 
             {resetStep === 3 && (
-              <form onSubmit={handleFinalReset} className="space-y-3">
-                <p className="text-slate-400">Enter your new secure password (will be SHA-256 encrypted):</p>
+              <form onSubmit={handleFinalReset} className="space-y-4">
+                <p className="text-slate-400 text-xs">
+                  Set a new secure password for <span className="text-emerald-400 font-bold">{resetEmail}</span>:
+                </p>
+
                 <div>
                   <label className="font-semibold text-slate-300 block mb-1">New Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="password"
+                      required
+                      placeholder="Enter new password (e.g. @1234)"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                    />
+                  </div>
                 </div>
 
                 {/* Password Strength Meter */}
@@ -444,9 +576,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  Update Password & Log In
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Update Password & Auto-Fill</span>
                 </button>
               </form>
             )}
