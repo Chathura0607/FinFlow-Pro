@@ -123,6 +123,19 @@ db.expenses.hook('creating', (_primKey, obj) => {
 export async function seedInitialData(force = false) {
   const userCount = await db.users.count();
   if (userCount > 0 && !force) {
+    // Self-healing migration for existing databases with mismatched legacy Admin hash
+    try {
+      const adminUser = await db.users.where({ username: 'Admin' }).first() || await db.users.get('2132');
+      if (adminUser && adminUser.passwordHash === 'sha256:56885dfda2bf1ceca80f531393bc3f13df934fba31eb18e69fa0f4e1f822f3e8') {
+        // Correct to exact salted SHA-256 for @1234
+        await db.users.update(adminUser.id, {
+          passwordHash: 'sha256:28423239ce9bc161a7e112b376da5843f8777471e83dcfb5198e460342cdaba4'
+        });
+        console.info('[FinFlow DB] Auto-repaired Admin password hash migration.');
+      }
+    } catch (e) {
+      console.warn('[FinFlow DB] Migration check error:', e);
+    }
     return;
   }
 
@@ -156,7 +169,7 @@ export async function seedInitialData(force = false) {
       name: 'System Administrator',
       email: 'chathuulakmina@gmail.com',
       role: 'Admin',
-      passwordHash: 'sha256:56885dfda2bf1ceca80f531393bc3f13df934fba31eb18e69fa0f4e1f822f3e8', // @1234
+      passwordHash: 'sha256:28423239ce9bc161a7e112b376da5843f8777471e83dcfb5198e460342cdaba4', // @1234
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       lastLogin: new Date().toISOString()
     },
