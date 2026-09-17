@@ -267,7 +267,19 @@ Micro Finance Security Team`;
       recipientName: 'Valued Staff Member',
       subject,
       type: 'Password Reset',
-      bodyContent: body
+      bodyContent: body,
+      templateParams: {
+        otp_code: otpCode,
+        otp: otpCode,
+        code: otpCode,
+        verification_code: otpCode,
+        passcode: otpCode,
+        reset_code: otpCode,
+        security_code: otpCode,
+        expires_in: '10 minutes',
+        recipient_email: email,
+        to_email: email
+      }
     });
   }
 };
