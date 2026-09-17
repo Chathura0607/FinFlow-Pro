@@ -13,13 +13,24 @@ export interface EmailConfig {
 
 export const EmailService = {
   getConfig(): EmailConfig {
+    const envPublicKey = ((import.meta as any).env?.VITE_EMAILJS_PUBLIC_KEY as string) || '';
+    const envServiceId = ((import.meta as any).env?.VITE_EMAILJS_SERVICE_ID as string) || '';
+    const envTemplateId = ((import.meta as any).env?.VITE_EMAILJS_TEMPLATE_ID as string) || '';
+
+    const storedPublicKey = localStorage.getItem('EMAILJS_PUBLIC_KEY') || envPublicKey;
+    const storedServiceId = localStorage.getItem('EMAILJS_SERVICE_ID') || envServiceId || 'service_microfinance';
+    const storedTemplateId = localStorage.getItem('EMAILJS_TEMPLATE_ID') || envTemplateId || 'template_notification';
+    const storedLive = localStorage.getItem('EMAIL_ENABLE_LIVE');
+
+    const enableLiveDispatch = storedLive !== null ? storedLive === 'true' : Boolean(storedPublicKey && storedPublicKey.trim() !== '');
+
     return {
-      serviceId: localStorage.getItem('EMAILJS_SERVICE_ID') || 'service_microfinance',
-      templateId: localStorage.getItem('EMAILJS_TEMPLATE_ID') || 'template_notification',
-      publicKey: localStorage.getItem('EMAILJS_PUBLIC_KEY') || '',
+      serviceId: storedServiceId,
+      templateId: storedTemplateId,
+      publicKey: storedPublicKey,
       senderEmail: localStorage.getItem('EMAIL_SENDER_EMAIL') || 'notifications@microfinance.lk',
       senderName: localStorage.getItem('EMAIL_SENDER_NAME') || 'Micro Finance System Pro',
-      enableLiveDispatch: localStorage.getItem('EMAIL_ENABLE_LIVE') === 'true'
+      enableLiveDispatch
     };
   },
 
