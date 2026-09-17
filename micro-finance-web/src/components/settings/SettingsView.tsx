@@ -15,7 +15,9 @@ import {
   AlertTriangle,
   FileCheck,
   Activity,
-  UserCheck
+  UserCheck,
+  Mail,
+  Send
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -29,6 +31,7 @@ import {
 import type { User } from '../../db/types';
 import { AIService } from '../../services/aiService';
 import { SecurityService } from '../../services/securityService';
+import { EmailService, type EmailConfig } from '../../services/emailService';
 import { useToast } from '../layout/Toast';
 
 interface SettingsViewProps {
@@ -45,6 +48,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
+  // Email Config State
+  const [emailConfig, setEmailConfig] = useState<EmailConfig>(EmailService.getConfig());
+  const [testEmail, setTestEmail] = useState(emailConfig.senderEmail || 'test@example.com');
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
+
   // Inactivity Timeout setting
   const [sessionTimeout, setSessionTimeout] = useState(SecurityService.getSessionTimeout());
 
@@ -60,6 +68,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     e.preventDefault();
     AIService.setApiKey(apiKey.trim());
     showToast('success', 'Gemini API Key Saved', 'Google Gemini AI engine connected.');
+  };
+
+  const handleSaveEmailConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    EmailService.saveConfig(emailConfig);
+    showToast('success', 'Email Settings Saved', 'EmailJS live dispatch settings saved.');
+  };
+
+  const handleTestLiveEmail = async () => {
+    if (!emailConfig.publicKey || !emailConfig.serviceId || !emailConfig.templateId) {
+      showToast('error', 'Missing Keys', 'Please enter EmailJS Public Key, Service ID, and Template ID first.');
+      return;
+    }
+
+    setIsTestingEmail(true);
+    EmailService.saveConfig({ ...emailConfig, enableLiveDispatch: true });
+
+    try {
+      const res = await EmailService.sendEmail({
+        recipientEmail: testEmail,
+        recipientName: 'Staff Member',
+        subject: '🧪 FinFlow Pro: Live Email Verification Test',
+        type: 'Custom Notice',
+        bodyContent: `Congratulations! Your FinFlow Pro Live EmailJS Dispatch Engine is successfully configured and working.\n\nTimestamp: ${new Date().toLocaleString()}\nService ID: ${emailConfig.serviceId}`
+      });
+
+      if (res.success && res.mode === 'Live EmailJS') {
+        showToast('success', 'Live Email Delivered!', `Test email successfully sent to ${testEmail}. Check inbox & spam.`);
+      } else {
+        showToast('warning', 'Dispatch Result', res.message);
+      }
+    } catch (err: any) {
+      showToast('error', 'Test Failed', err.message);
+    } finally {
+      setIsTestingEmail(false);
+    }
   };
 
   const handleSessionTimeoutChange = (minutes: number) => {
@@ -486,7 +530,126 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </form>
       </div>
 
-      {/* 6. System Info & Security Architecture */}
+      {/* 6. EmailJS Live Email Dispatch Engine */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white">
+              <Mail className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-900 dark:text-white text-sm">EmailJS Live Email Dispatch Engine</h4>
+              <p className="text-xs text-slate-400">
+                Dispatches real automated emails for loan approvals, receipts, overdue notices, and password reset OTPs
+              </p>
+            </div>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={emailConfig.enableLiveDispatch}
+              onChange={(e) => {
+                const updated = { ...emailConfig, enableLiveDispatch: e.target.checked };
+                setEmailConfig(updated);
+                EmailService.saveConfig(updated);
+                showToast('info', 'Email Dispatch Mode', e.target.checked ? 'Live EmailJS Enabled' : 'Switched to Local Outbox Simulation');
+              }}
+              className="w-4 h-4 rounded accent-emerald-600"
+            />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+              {emailConfig.enableLiveDispatch ? '🟢 Live Email Active' : '⚪ Simulated Outbox Mode'}
+            </span>
+          </label>
+        </div>
+
+        <form onSubmit={handleSaveEmailConfig} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">EmailJS Public Key</label>
+              <input
+                type="text"
+                placeholder="e.g. user_xxx or public_key"
+                value={emailConfig.publicKey}
+                onChange={(e) => setEmailConfig({ ...emailConfig, publicKey: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Service ID</label>
+              <input
+                type="text"
+                placeholder="e.g. service_xxx"
+                value={emailConfig.serviceId}
+                onChange={(e) => setEmailConfig({ ...emailConfig, serviceId: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Template ID</label>
+              <input
+                type="text"
+                placeholder="e.g. template_xxx"
+                value={emailConfig.templateId}
+                onChange={(e) => setEmailConfig({ ...emailConfig, templateId: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Sender Email</label>
+              <input
+                type="email"
+                placeholder="notifications@microfinance.lk"
+                value={emailConfig.senderEmail}
+                onChange={(e) => setEmailConfig({ ...emailConfig, senderEmail: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Sender Name / System Title</label>
+              <input
+                type="text"
+                placeholder="FinFlow Pro Notifications"
+                value={emailConfig.senderName}
+                onChange={(e) => setEmailConfig({ ...emailConfig, senderName: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <input
+                type="email"
+                placeholder="Enter test recipient email..."
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500 text-xs w-64"
+              />
+              <button
+                type="button"
+                disabled={isTestingEmail}
+                onClick={handleTestLiveEmail}
+                className="px-4 py-2 rounded-xl bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{isTestingEmail ? 'Sending...' : 'Send Test Email'}</span>
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-600/30 cursor-pointer"
+            >
+              Save Email Configuration
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* 7. System Info & Security Architecture */}
       <div className="p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
         <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold">
           <Shield className="w-4 h-4 text-emerald-600" />
