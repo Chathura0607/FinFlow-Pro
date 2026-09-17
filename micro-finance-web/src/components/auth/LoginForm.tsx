@@ -14,7 +14,8 @@ import {
   Sparkles,
   CheckCircle2,
   RefreshCw,
-  Info
+  Info,
+  Settings
 } from 'lucide-react';
 import type { User } from '../../db/types';
 import { db } from '../../db/db';
@@ -72,6 +73,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
   const [newPassword, setNewPassword] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [otpDispatchInfo, setOtpDispatchInfo] = useState<{ mode: string; message: string } | null>(null);
+
+  // Email Config in Modal
+  const [isEmailConfigExpanded, setIsEmailConfigExpanded] = useState(false);
+  const [emailConfig, setEmailConfig] = useState(EmailService.getConfig());
 
   const passwordStrength = SecurityService.evaluatePasswordStrength(newPassword);
 
@@ -174,6 +179,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
     showToast('info', 'Security Lockout Cleared', 'You can now sign in with your credentials.');
   };
 
+  const handleSaveEmailConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    EmailService.saveConfig(emailConfig);
+    showToast('success', 'Email Settings Saved', 'Live EmailJS settings updated.');
+    setIsEmailConfigExpanded(false);
+  };
+
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const emailCheck = SecurityService.validateEmail(resetEmail);
@@ -192,7 +204,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
       setOtpDispatchInfo({ mode: res.mode, message: res.message });
 
       if (res.mode === 'Live EmailJS') {
-        showToast('success', 'Verification Code Dispatched', `Live OTP sent to ${resetEmail}. Check your inbox & spam.`);
+        if (res.success) {
+          showToast('success', 'Live Email Dispatched', `Real verification OTP email sent to ${resetEmail}. Please check your inbox & spam folder.`);
+        } else {
+          showToast('error', 'Live Email Warning', res.message);
+        }
       } else {
         showToast('info', 'Verification Code Ready', `Simulated Mode: Code ${otp} generated.`);
       }
@@ -336,6 +352,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
                   onClick={() => {
                     setIsResetOpen(true);
                     setResetStep(1);
+                    setEmailConfig(EmailService.getConfig());
                   }}
                   className="text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold transition-colors cursor-pointer"
                 >
@@ -424,11 +441,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
             </div>
 
             {resetStep === 1 && (
-              <form onSubmit={handleSendOtp} className="space-y-4">
+              <form onSubmit={handleSendOtp} className="space-y-3.5">
                 <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-slate-300 flex items-start gap-2.5">
                   <Info className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   <p className="text-[11px] leading-relaxed">
-                    Enter your staff email address. A 6-digit verification security OTP will be generated for instant verification.
+                    Enter your registered staff email address to receive your 6-digit security OTP verification code.
                   </p>
                 </div>
 
@@ -447,13 +464,83 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
                   </div>
                 </div>
 
+                {/* EmailJS Live Dispatch Configuration Toggle */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsEmailConfigExpanded(!isEmailConfigExpanded)}
+                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>{isEmailConfigExpanded ? 'Hide Live Email Settings' : '⚙️ Configure Live EmailJS (Real Email Dispatch)'}</span>
+                  </button>
+
+                  {isEmailConfigExpanded && (
+                    <div className="mt-2.5 p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2.5 text-[11px] animate-fade-in">
+                      <p className="text-slate-400 text-[10px] leading-relaxed">
+                        Configure <span className="text-emerald-400 font-bold">EmailJS</span> to dispatch real emails directly to Gmail / Outlook / Yahoo.
+                      </p>
+                      <div>
+                        <label className="text-slate-400 block mb-0.5 text-[10px]">EmailJS Public Key</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. your_public_key"
+                          value={emailConfig.publicKey}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, publicKey: e.target.value, enableLiveDispatch: true })}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-[10px]"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-slate-400 block mb-0.5 text-[10px]">Service ID</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. service_xxx"
+                            value={emailConfig.serviceId}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, serviceId: e.target.value })}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-[10px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-slate-400 block mb-0.5 text-[10px]">Template ID</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. template_xxx"
+                            value={emailConfig.templateId}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, templateId: e.target.value })}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-[10px]"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <label className="flex items-center gap-1.5 text-slate-300 text-[10px] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={emailConfig.enableLiveDispatch}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, enableLiveDispatch: e.target.checked })}
+                            className="rounded accent-emerald-500"
+                          />
+                          <span>Enable Live Dispatch</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={handleSaveEmailConfig}
+                          className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] cursor-pointer shadow"
+                        >
+                          Save Keys
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="submit"
                   disabled={isSendingOtp}
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{isSendingOtp ? 'Generating Security Code...' : 'Send Verification Code'}</span>
+                  <span>{isSendingOtp ? 'Dispatching Verification Email...' : 'Send Verification Code'}</span>
                 </button>
               </form>
             )}
@@ -470,8 +557,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess }) => {
                   </div>
                   <p className="text-[10px] text-slate-400">
                     {otpDispatchInfo?.mode === 'Live EmailJS'
-                      ? `Live email sent to ${resetEmail}.`
-                      : `Simulation Mode: Verification code generated for ${resetEmail}.`}
+                      ? `✉️ Live email dispatched to ${resetEmail}. Check your inbox & spam.`
+                      : `💡 Code generated for ${resetEmail}. (Live EmailJS can be enabled in settings)`}
                   </p>
                   <button
                     type="button"
