@@ -437,4 +437,4 @@ Finance-Project-FinFlow-Pro/
 
 This project is open-source and released under the **[MIT License](LICENSE)**.
 
-Developed by **[Chathura](https://github.com/Chathura0607)**. Designed with ❤️ for modern, high-speed micro-finance management and AI credit underwriting.
+Developed by **[Chathura](https://github.com/Chathura0607)**. Designed for modern, high-speed micro-finance management and AI credit underwriting.
